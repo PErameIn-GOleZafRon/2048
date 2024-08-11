@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2048 Neon</title>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        h1 {
+            margin-bottom: 10px;
+            color: #e67e22;
+            font-size: 1.5rem;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .user-info {
+            margin-bottom: 10px;
+            color: #ecf0f1;
+            font-size: 1rem;
+        }
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 300px;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+        .score-board div {
+            padding: 5px 15px;
+            background: #2c3e50;
+            border-radius: 10px;
+            color: #ecf0f1;
+        }
+        #game-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+            gap: 5px;
+            background-color: #34495e;
+            border-radius: 10px;
+            box-shadow: 0 0 20px #2980b9;
+            max-width: 290px;
+            height: 290px;
+            width: 290px;
+            position: relative;
+        }
+        .tile {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            border-radius: 5px;
+            color: #ffffff;
+            font-weight: bold;
+            transition: transform 0.2s ease, background-color 0.3s ease;
+            width: 100%;
+            height: 100%;
+        }
+        .tile[data-value="2"] { background-color: #3498db; }
+        .tile[data-value="4"] { background-color: #2ecc71; }
+        .tile[data-value="8"] { background-color: #f1c40f; }
+        .tile[data-value="16"] { background-color: #e67e22; }
+        .tile[data-value="32"] { background-color: #e74c3c; }
+        .tile[data-value="64"] { background-color: #1abc9c; }
+        .tile[data-value="128"] { background-color: #9b59b6; }
+        .tile[data-value="256"] { background-color: #ecf0f1; color: #34495e; }
+        .tile[data-value="512"] { background-color: #95a5a6; }
+        .tile[data-value="1024"] { background-color: #34495e; color: #f39c12; }
+        .tile[data-value="2048"] { background-color: #000000; color: #f39c12; }
+        .controls {
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 300px;
+        }
+        .controls button {
+            padding: 7px 15px;
+            background-color: #16a085;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.3s ease;
+            box-shadow: 0 0 10px #16a085;
+        }
+        .controls button:hover {
+            background-color: #1abc9c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>2048 Neon</h1>
+        <div class="user-info" id="user-info"></div>
+        <div class="score-board">
+            <div>Score: <span id="score">0</span></div>
+            <div>Best: <span id="best-score">0</span></div>
+        </div>
+        <div id="game-container"></div>
+        <div class="controls">
+            <button onclick="restartGame()">Restart</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAdGjnh0w1ez6qbsKAl3ZWuPPgVYhy3Wfc",
+            authDomain: "gz2048game.firebaseapp.com",
+            projectId: "gz2048game",
+            storageBucket: "gz2048game.appspot.com",
+            messagingSenderId: "397421689874",
+            appId: "1:397421689874:web:c7010e532b53a9d69deccb",
+            measurementId: "G-QQEDE0N94X"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let userId;
+        let userName;
+        if (window.Telegram && window.Telegram.WebApp) {
+            userId = window.Telegram.WebApp.initDataUnsafe.user.id;
+            userName = window.Telegram.WebApp.initDataUnsafe.user.username || "User";
+            document.getElementById('user-info').innerText = `${userName} (${userId})`;
+        } else {
+            console.error("This app is not running inside Telegram Web App.");
+        }
+
+        let score = 0;
+        let bestScore = 0;
+        let gameGrid = [];
+        const gridSize = 4;
+
+        async function initGame() {
+            await getBestScore();
+            gameGrid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+            addNewTile();
+            addNewTile();
+            renderGrid();
+        }
+
+        async function getBestScore() {
+            const docRef = doc(db, "scores", userId.toString());
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                bestScore = docSnap.data().bestScore;
+                console.log("Best score loaded from Firebase:", bestScore);
+            } else {
+                console.log("No best score found, setting to 0.");
+                bestScore = 0;
+                await updateBestScore();
+            }
+            document.getElementById('best-score').innerText = bestScore;
+        }
+
+        async function updateBestScore() {
+            const docRef = doc(db, "scores", userId.toString());
+            await setDoc(docRef, { bestScore: bestScore });
+            console.log("Best score updated in Firebase:", bestScore);
+        }
+
+        function addNewTile() {
+            let emptyTiles = [];
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (gameGrid[i][j] === 0) emptyTiles.push({ x: i, y: j });
+                }
+            }
+            if (emptyTiles.length > 0) {
+                const { x, y } = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
+                gameGrid[x][y] = Math.random() < 0.9 ? 2 : 4;
+                renderGrid();
+            }
+        }
+
+        function renderGrid() {
+            const container = document.getElementById('game-container');
+            container.innerHTML = '';
+            gameGrid.forEach((row, rowIndex) => {
+                row.forEach((value, colIndex) => {
+                    if (value !== 0) {
+                        const tile = document.createElement('div');
+                        tile.className = 'tile';
+                        tile.setAttribute('data-value', value);
+                        tile.innerText = value;
+                        tile.style.gridColumn = colIndex + 1;
+                        tile.style.gridRow = rowIndex + 1;
+                        container.appendChild(tile);
+                    }
+                });
+            });
+            document.getElementById('score').innerText = score;
+            document.getElementById('best-score').innerText = bestScore;
+        }
+
+        function restartGame() {
+            score = 0;
+            initGame();
+        }
+
+        window.onload = async function () {
+            if (userId) {
+                await initGame();
+            }
+        };
+    </script>
+</body>
+</html>
